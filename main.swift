@@ -78,6 +78,7 @@ struct PlayerLine: Identifiable, Sendable {
     let proTeamId: Int
     let points: Double
     let projected: Double
+    var breakdown: [StatLine] = []
 
     var shortName: String {
         if position == 16 { return name.replacingOccurrences(of: " D/ST", with: " D/ST") }
@@ -90,6 +91,64 @@ struct PlayerLine: Identifiable, Sendable {
 
 let slotNames: [Int: String] = [0: "QB", 2: "RB", 3: "RB/WR", 4: "WR", 5: "WR/TE", 6: "TE", 7: "OP",
                                 16: "D/ST", 17: "K", 20: "BE", 21: "IR", 23: "FLEX"]
+// One scored stat in a player's fantasy total ("Rec Yds  87  8.7").
+struct StatLine: Identifiable, Sendable {
+    let id: Int
+    let label: String
+    let value: Double?   // raw stat (yards, catches…); nil for yes/no bonuses
+    let points: Double
+}
+
+// ESPN stat IDs → labels. Yardage-bonus IDs (every 5/10/25… yds) fold into their base yards stat.
+let statLabels: [Int: String] = [
+    0: "Pass Att", 1: "Completions", 2: "Incompletions", 3: "Pass Yds", 4: "Pass TD", 15: "40+ Yd Pass TD",
+    16: "50+ Yd Pass TD", 17: "300-399 Pass Yd Game", 18: "400+ Pass Yd Game", 19: "Pass 2PT", 20: "INT Thrown",
+    22: "Pass Yds", 23: "Rush Att", 24: "Rush Yds", 25: "Rush TD", 26: "Rush 2PT", 35: "40+ Yd Rush TD",
+    36: "50+ Yd Rush TD", 37: "100-199 Rush Yd Game", 38: "200+ Rush Yd Game", 40: "Rush Yds", 41: "Receptions",
+    42: "Rec Yds", 43: "Rec TD", 44: "Rec 2PT", 45: "40+ Yd Rec TD", 46: "50+ Yd Rec TD", 53: "Receptions",
+    56: "100-199 Rec Yd Game", 57: "200+ Rec Yd Game", 58: "Targets", 61: "Rec Yds", 62: "2PT Conv",
+    63: "Fumble Rec TD", 64: "Sacked", 68: "Fumbles", 72: "Fumbles Lost", 73: "Turnovers",
+    74: "FG 50+", 75: "FG 50+ Att", 76: "FG 50+ Missed", 77: "FG 40-49", 78: "FG 40-49 Att", 79: "FG 40-49 Missed",
+    80: "FG 0-39", 81: "FG 0-39 Att", 82: "FG 0-39 Missed", 83: "FG Made", 84: "FG Att", 85: "FG Missed",
+    86: "XP Made", 87: "XP Att", 88: "XP Missed", 198: "FG 50-59", 199: "FG 50-59 Att", 200: "FG 50-59 Missed",
+    201: "FG 60+", 202: "FG 60+ Att", 203: "FG 60+ Missed",
+    89: "0 Pts Allowed", 90: "1-6 Pts Allowed", 91: "7-13 Pts Allowed", 92: "14-17 Pts Allowed",
+    93: "Blocked Kick TD", 94: "Def TD", 95: "Interceptions", 96: "Fumble Rec", 97: "Blocked Kicks",
+    98: "Safeties", 99: "Sacks", 101: "Kick Return TD", 102: "Punt Return TD", 103: "INT Return TD",
+    104: "Fumble Return TD", 105: "Def/ST TD", 106: "Forced Fumbles", 107: "Assisted Tackles", 108: "Solo Tackles",
+    109: "Tackles", 113: "Passes Defensed", 114: "Kick Return Yds", 115: "Punt Return Yds", 118: "Punts Returned",
+    120: "Pts Allowed", 121: "18-21 Pts Allowed", 122: "22-27 Pts Allowed", 123: "28-34 Pts Allowed",
+    124: "35-45 Pts Allowed", 125: "46+ Pts Allowed", 127: "Yds Allowed", 128: "<100 Yds Allowed",
+    129: "100-199 Yds Allowed", 130: "200-299 Yds Allowed", 131: "300-349 Yds Allowed", 132: "350-399 Yds Allowed",
+    133: "400-449 Yds Allowed", 134: "450-499 Yds Allowed", 135: "500-549 Yds Allowed", 136: "550+ Yds Allowed",
+    187: "Pts Allowed", 205: "2PT Return", 206: "2PT Return",
+]
+func baseStat(_ id: Int) -> Int {
+    switch id {
+    case 5...14, 22: 3
+    case 27...34, 40: 24
+    case 47...52, 54, 55, 61: 42
+    case 41: 53
+    case 100: 99
+    case 187: 120
+    default: id
+    }
+}
+// Flag-style stats (bucket bonuses) whose raw value is just 1, so it isn't worth showing.
+let flagStats = Set([17, 18, 37, 38, 56, 57, 89, 90, 91, 92, 121, 122, 123, 124, 125] + Array(128...136))
+
+func breakdown(applied: J, raw: J) -> [StatLine] {
+    var merged: [Int: Double] = [:]
+    for (k, v) in applied {
+        guard let id = Int(k), let pts = (v as? NSNumber)?.doubleValue, pts != 0 else { continue }
+        merged[baseStat(id), default: 0] += pts
+    }
+    return merged.map { id, pts in
+        StatLine(id: id, label: statLabels[id] ?? "Stat \(id)",
+                 value: flagStats.contains(id) ? nil : raw.n(String(id)), points: pts)
+    }.sorted { abs($0.points) > abs($1.points) }
+}
+
 let slotOrder: [Int: Int] = [0: 0, 2: 1, 4: 2, 6: 3, 23: 4, 3: 4, 5: 4, 7: 5, 16: 8, 17: 9]
 
 struct TeamSide: Sendable {
@@ -255,14 +314,17 @@ enum ESPN {
         for en in s.d("rosterForCurrentScoringPeriod")?.a("entries") ?? [] {
             let slot = en.i("lineupSlotId") ?? 20
             guard slot != 20, slot != 21, let ppe = en.d("playerPoolEntry"), let p = ppe.d("player") else { continue }
-            var pts = ppe.n("appliedStatTotal") ?? 0, proj = 0.0
+            var pts = ppe.n("appliedStatTotal") ?? 0, proj = 0.0, lines: [StatLine] = []
             for st in p.a("stats") where st.i("scoringPeriodId") == meta.scoringPeriod {
-                if st.i("statSourceId") == 0 { pts = st.n("appliedTotal") ?? pts }
+                if st.i("statSourceId") == 0 {
+                    pts = st.n("appliedTotal") ?? pts
+                    lines = breakdown(applied: st.d("appliedStats") ?? [:], raw: st.d("stats") ?? [:])
+                }
                 if st.i("statSourceId") == 1 { proj = st.n("appliedTotal") ?? proj }
             }
             starters.append(PlayerLine(id: p.i("id") ?? starters.count, name: p.s("fullName") ?? "?", slot: slot,
                                        position: p.i("defaultPositionId") ?? 0, proTeamId: p.i("proTeamId") ?? 0,
-                                       points: pts, projected: proj))
+                                       points: pts, projected: proj, breakdown: lines))
         }
         starters.sort { (slotOrder[$0.slot] ?? 6) < (slotOrder[$1.slot] ?? 6) }
         let info = meta.teams[tid]
@@ -302,7 +364,10 @@ enum ESPN {
             let slots = [0, 2, 2, 4, 4, 6, 23, 16, 17]
             let ps = slots.enumerated().map { i, slot in
                 PlayerLine(id: tid * 100 + i, name: "Demo Player\(i + 1)", slot: slot, position: slot == 23 ? 2 : slot,
-                           proTeamId: ids.isEmpty ? 0 : ids[(i * 3 + offset) % ids.count], points: Double((i * 7 + offset) % 19), projected: 12)
+                           proTeamId: ids.isEmpty ? 0 : ids[(i * 3 + offset) % ids.count], points: Double((i * 7 + offset) % 19), projected: 12,
+                           breakdown: [StatLine(id: 42, label: "Rec Yds", value: 64, points: 6.4),
+                                       StatLine(id: 53, label: "Receptions", value: 5, points: 2.5),
+                                       StatLine(id: 72, label: "Fumbles Lost", value: 1, points: -2)])
             }
             return TeamSide(teamId: tid, name: abbrev, abbrev: abbrev, score: ps.reduce(0) { $0 + $1.points },
                             projected: 118.4, starters: ps)
@@ -408,6 +473,7 @@ struct WidgetView: View {
     var openSettings: () -> Void
     var hide: () -> Void
     @State private var pulse = false
+    @State private var openPlayers: Set<Int> = []
 
     var body: some View {
         let league = store.selected
@@ -538,20 +604,52 @@ struct WidgetView: View {
             ForEach(side.starters) { p in
                 let s = status(of: p, games: store.games)
                 let team = store.games[p.proTeamId]?.abbrevs[p.proTeamId] ?? ""
-                HStack(spacing: 5) {
-                    Text(p.slotName).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
-                        .frame(width: 30, alignment: .leading)
-                    Text(s.icon).font(.system(size: 9)).frame(width: 14)
-                    Text(p.shortName).font(.system(size: 11, weight: s.rank <= 1 ? .bold : .regular)).lineLimit(1)
-                    Text(team).font(.system(size: 9)).foregroundStyle(.secondary)
+                let open = openPlayers.contains(p.id)
+                Button {
+                    if open { openPlayers.remove(p.id) } else { openPlayers.insert(p.id) }
+                    store.onUpdate?()
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(p.slotName).font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
+                            .frame(width: 30, alignment: .leading)
+                        Text(s.icon).font(.system(size: 9)).frame(width: 14)
+                        Text(p.shortName).font(.system(size: 11, weight: s.rank <= 1 ? .bold : .regular)).lineLimit(1)
+                        Text(team).font(.system(size: 9)).foregroundStyle(.secondary)
+                        Spacer(minLength: 4)
+                        Text(detailText(s)).font(.system(size: 9)).foregroundStyle(s.rank == 0 ? .red : s.isDangerZone ? .orange : .secondary).lineLimit(1)
+                        Text(fmt(p.points)).font(.system(size: 11, weight: .medium, design: .rounded))
+                            .frame(width: 34, alignment: .trailing)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Show scoring breakdown")
+                if open { breakdownView(p) }
+            }
+        }
+    }
+
+    func breakdownView(_ p: PlayerLine) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            if p.breakdown.isEmpty {
+                Text("No scoring yet").foregroundStyle(.secondary)
+            }
+            ForEach(p.breakdown) { line in
+                HStack(spacing: 4) {
+                    Text(line.label).foregroundStyle(.secondary).lineLimit(1)
                     Spacer(minLength: 4)
-                    Text(detailText(s)).font(.system(size: 9)).foregroundStyle(s.rank == 0 ? .red : s.isDangerZone ? .orange : .secondary).lineLimit(1)
-                    Text(fmt(p.points)).font(.system(size: 11, weight: .medium, design: .rounded))
+                    if let v = line.value { Text(statValue(v)).foregroundStyle(.secondary) }
+                    Text((line.points > 0 ? "+" : "") + fmt(line.points))
+                        .foregroundStyle(line.points < 0 ? .red : .primary)
                         .frame(width: 34, alignment: .trailing)
                 }
             }
         }
+        .font(.system(size: 9, design: .rounded))
+        .padding(.leading, 49).padding(.vertical, 2)
     }
+
+    func statValue(_ v: Double) -> String { v == v.rounded() ? String(Int(v)) : fmt(v) }
 
     func detailText(_ s: PlayStatus) -> String {
         switch s {
