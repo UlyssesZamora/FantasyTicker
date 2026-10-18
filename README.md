@@ -1,33 +1,27 @@
-# FantasyTicker
+# FantasyTicker 🏈
 
-A small macOS app that shows your live ESPN fantasy football matchup in a floating, draggable, always-on-top window and in the menu bar.
+Vibe coded app to show my fantasy football matchups because I'm too lazy to look at my phone or open the website while I'm doing other stuff.
 
-- Live score vs. your opponent, with projections
-- League switcher for multiple leagues
-- 🏈 when one of your players' teams has the ball, 🔴 when they're in the red zone
-- 🛡️ when your D/ST is on the field (⚠︎ when the opponent is in the red zone)
-- ⌃⌥F shows/hides the window
+It's a little window that floats in the corner of your Mac and tells you:
 
-## Build
+- the score of your matchup (and whether you should be nervous)
+- 🏈 when one of your guys' teams has the ball
+- 🔴 when one of your guys is in the red zone (lock in)
+- 🛡️ when your defense is on the field
+- what your opponent's players are up to, so you can root against them
+
+Drag it anywhere, switch between leagues, or hide it with ⌃⌥F when your boss walks by.
+
+## Setup
 
 ```sh
 ./build.sh
 open FantasyTicker.app
 ```
 
-Requires the Xcode command line tools (`swiftc`), macOS 13+.
+Then open **Settings…** and paste in:
 
-## Setup
+- **League IDs**: the number after `leagueId=` in your league's URL on fantasy.espn.com
+- **SWID** and **espn_s2**: cookies from fantasy.espn.com (Chrome: ⌥⌘I → Application → Cookies). You need these for private leagues.
 
-Open **Settings…** from the window or the menu bar and enter:
-
-- **League IDs** — the number after `leagueId=` in your league's URL on fantasy.espn.com
-- **SWID** and **espn_s2** — cookies from fantasy.espn.com (Chrome: ⌥⌘I → Application → Cookies). Needed for private leagues.
-
-Settings are stored locally in `~/Library/Application Support/FantasyTicker/config.json`.
-
-## Testing without an ESPN login
-
-`FT_DEMO=1 ./FantasyTicker.app/Contents/MacOS/FantasyTicker` fills the window with fake players on real, live NFL games. Add `FT_SNAPSHOT=/tmp/shot.png` to save a picture of the window.
-
-Uses ESPN's unofficial fantasy API and public NFL scoreboard, which may change without notice.
+Your cookies stay on your Mac. Uses ESPN's unofficial API, so if it breaks one Sunday, that's why.
