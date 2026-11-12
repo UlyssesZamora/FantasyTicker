@@ -24,4 +24,4 @@ Then open **Settings…** and paste in:
 - **League IDs**: the number after `leagueId=` in your league's URL on fantasy.espn.com
 - **SWID** and **espn_s2**: cookies from fantasy.espn.com (Chrome: ⌥⌘I → Application → Cookies). You need these for private leagues.
 
-Your cookies stay on your Mac. Uses ESPN's unofficial API, so if it breaks one Sunday, that's why.
+Your cookies stay on your Mac. Uses ESPN's unofficial API, so if it breaks one Sunday, that's why.test
